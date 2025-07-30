@@ -1,0 +1,7 @@
+transformers>=4.22
+datasets>=4.0
+evaluate>=0.4
+scikit-learn>=1.2
+pandas>=1.4
+matplotlib>=3.5
+seaborn>=0.11

@@ -1,0 +1,37 @@
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore Python cache and logs
+__pycache__/
+*.py[cod]
+*.log
+
+# Ignore virtual environments
+venv/
+env/
+*.egg-info/
+
+# Ignore large files or data artifacts
+*.csv
+*.tsv
+*.json
+*.parquet
+*.zip
+
+# Ignore notebooks checkpoints
+.ipynb_checkpoints/
+
+# Ignore model weights
+*.bin
+*.pt
+*.h5
+
+
+# HuggingFace and transformers cache
+.cache/
+huggingface/
+
+# VS Code and Jupyter config
+.vscode/
+*.ipynb~ 
