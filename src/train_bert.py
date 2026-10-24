@@ -1,66 +1,103 @@
-import os
+"""Fine-tune BERT (bert-base-uncased) on AG News.
+
+The checkpoint with the highest validation accuracy is restored at the end of
+training and evaluated once on the official test split.
+
+Example:
+    python -m src.train_bert
+    python -m src.train_bert --max-train-samples 2000 --epochs 1   # quick CPU check
+"""
+import argparse
+
 import numpy as np
 import pandas as pd
+import torch
 from datasets import Dataset
 from transformers import (
-    BertTokenizer,
-    BertForSequenceClassification,
-    TrainingArguments,
-    Trainer,
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
     DataCollatorWithPadding,
+    Trainer,
+    TrainingArguments,
+    set_seed,
 )
-import evaluate
 
-def load_and_prepare_data(train_path, val_path, tokenizer):
-    # Load CSVs
-    train_df = pd.read_csv(train_path)
-    val_df = pd.read_csv(val_path)
+from src import config
+from src.utils import compute_metrics, plot_confusion_matrix, plot_training_curve, save_json
 
-    # Keep only necessary columns
-    train_ds = Dataset.from_pandas(train_df[['clean_text', 'label']])
-    val_ds = Dataset.from_pandas(val_df[['clean_text', 'label']])
 
-    # Tokenization function
-    def tokenize(batch):
-        return tokenizer(batch['clean_text'], padding=True, truncation=True)
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--model-name", default=config.BERT_MODEL_NAME,
+                   help="Hub id or local directory of a pre-trained BERT checkpoint.")
+    p.add_argument("--epochs", type=float, default=config.BERT_EPOCHS)
+    p.add_argument("--batch-size", type=int, default=config.BERT_BATCH_SIZE)
+    p.add_argument("--learning-rate", type=float, default=config.BERT_LEARNING_RATE)
+    p.add_argument("--max-length", type=int, default=config.BERT_MAX_LENGTH)
+    p.add_argument("--max-train-samples", type=int, default=None,
+                   help="Subsample the training split (for smoke tests).")
+    p.add_argument("--max-eval-samples", type=int, default=None,
+                   help="Subsample the validation and test splits (for smoke tests).")
+    p.add_argument("--output-dir", default=str(config.MODELS_DIR / "bert"))
+    return p.parse_args()
 
-    # Apply tokenization
-    train_ds = train_ds.map(tokenize, batched=True)
-    val_ds = val_ds.map(tokenize, batched=True)
 
-    return train_ds, val_ds
+def load_split(name, limit=None):
+    df = pd.read_csv(config.PROCESSED_DIR / f"ag_news_clean_{name}.csv")
+    if limit is not None and limit < len(df):
+        df = df.sample(n=limit, random_state=config.SEED)
+    return df[["text", "label"]].reset_index(drop=True)
 
-def compute_metrics(eval_pred):
+
+def tokenize_split(df, tokenizer, max_length):
+    ds = Dataset.from_pandas(df)
+    return ds.map(
+        lambda batch: tokenizer(batch["text"], truncation=True, max_length=max_length),
+        batched=True,
+        remove_columns=["text"],
+    )
+
+
+def accuracy_fn(eval_pred):
     logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
-    accuracy = evaluate.load("accuracy")
-    return accuracy.compute(predictions=predictions, references=labels)
+    return {"accuracy": float((np.argmax(logits, axis=-1) == labels).mean())}
+
 
 def main():
-    # Load model and tokenizer
-    model_dir = r"C:\Users\Ericmanny\Desktop\bert_base_uncased"
-    tokenizer = BertTokenizer.from_pretrained(model_dir)
-    model = BertForSequenceClassification.from_pretrained(model_dir, num_labels=4)
+    args = parse_args()
+    config.ensure_dirs()
+    set_seed(config.SEED)
 
-    # Load data
-    train_path = "data/processed/ag_news_clean_train.csv"
-    val_path = "data/processed/ag_news_clean_val.csv"
-    train_ds, val_ds = load_and_prepare_data(train_path, val_path, tokenizer)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        args.model_name,
+        num_labels=len(config.LABEL_NAMES),
+        id2label=config.ID2LABEL,
+        label2id=config.LABEL2ID,
+    )
 
-    # Configurations
+    train_ds = tokenize_split(load_split("train", args.max_train_samples), tokenizer, args.max_length)
+    val_ds = tokenize_split(load_split("val", args.max_eval_samples), tokenizer, args.max_length)
+    test_df = load_split("test", args.max_eval_samples)
+    test_ds = tokenize_split(test_df, tokenizer, args.max_length)
+
     training_args = TrainingArguments(
-        output_dir="results/bert_news_model",
-        evaluation_strategy="epoch",
+        output_dir=args.output_dir,
+        eval_strategy="epoch",
         save_strategy="epoch",
         logging_strategy="epoch",
-        num_train_epochs=3,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
-        learning_rate=2e-5,
-        weight_decay=0.01,
+        num_train_epochs=args.epochs,
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size * 2,
+        learning_rate=args.learning_rate,
+        weight_decay=config.BERT_WEIGHT_DECAY,
+        warmup_steps=config.BERT_WARMUP_RATIO,  # a float in [0, 1) is read as a fraction of total steps
         load_best_model_at_end=True,
         metric_for_best_model="accuracy",
-        report_to="none",  # Disable WandB logging unless used
+        save_total_limit=1,
+        fp16=torch.cuda.is_available(),
+        seed=config.SEED,
+        report_to="none",
     )
 
     trainer = Trainer(
@@ -68,17 +105,49 @@ def main():
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
-        compute_metrics=compute_metrics
+        compute_metrics=accuracy_fn,
     )
-
-    # Train & Save
     trainer.train()
-    model.save_pretrained("results/bert_final_model")
-    tokenizer.save_pretrained("results/bert_final_model")
 
-    print("✅ BERT training complete!")
+    # Reload the best checkpoint through from_pretrained. The in-place restore
+    # performed by load_best_model_at_end skips LayerNorm parameters that are
+    # serialised under their legacy gamma/beta names.
+    best = trainer.state.best_model_checkpoint
+    if best:
+        print(f"Best checkpoint: {best}")
+        trainer.model = trainer.model_wrapped = AutoModelForSequenceClassification.from_pretrained(best).to(
+            trainer.args.device
+        )
+
+    final_dir = config.MODELS_DIR / "bert_final"
+    trainer.save_model(final_dir)
+
+    prediction = trainer.predict(test_ds)
+    y_pred = prediction.predictions.argmax(axis=-1)
+    metrics = compute_metrics(test_df["label"].to_numpy(), y_pred)
+    metrics.update({
+        "model": f"{args.model_name} (fine-tuned)",
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "max_length": args.max_length,
+        "train_samples": len(train_ds),
+        "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
+    })
+
+    suffix = "" if args.max_train_samples is None else "_subset"
+    save_json(metrics, config.METRICS_DIR / f"bert_metrics{suffix}.json")
+    save_json(trainer.state.log_history, config.METRICS_DIR / f"bert_log_history{suffix}.json")
+    plot_training_curve(trainer.state.log_history, config.FIGURES_DIR / f"bert_training_curve{suffix}.png")
+    plot_confusion_matrix(
+        metrics["confusion_matrix"], "Confusion Matrix: Fine-tuned BERT",
+        config.FIGURES_DIR / f"bert_confusion_matrix{suffix}.png",
+    )
+    print(f"Test accuracy = {metrics['accuracy']:.4f}, macro-F1 = {metrics['macro_f1']:.4f}")
+    print(f"Model saved to {final_dir}")
+
 
 if __name__ == "__main__":
     main()

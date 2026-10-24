@@ -1,29 +1,76 @@
-import pandas as pd
+"""Text normalisation and train/validation/test preparation.
+
+Two text views are produced for every article:
+  * ``text``: HTML residue and news-agency tags removed, casing and punctuation kept.
+    The BERT tokenizer consumes this view.
+  * ``clean_text``: additionally lower-cased and reduced to alphabetic tokens.
+    The TF-IDF model consumes this view.
+"""
+import html
 import re
-import os
+
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from src import config
+
+# AG News descriptions carry escaped entities such as "#39;" or "quot;" and
+# agency bylines such as "(Reuters)" or "AFP -". These leak the source rather
+# than the topic, so we strip them before modelling.
+_ENTITY = re.compile(r"&?#\d+;|&?(quot|amp|lt|gt|nbsp);", re.IGNORECASE)
+_TAG = re.compile(r"<[^>]+>|&lt;.*?&gt;", re.IGNORECASE)
+_SOURCES = (
+    r"AP|AFP|Reuters|Canadian Press|CP|SPACE\.com|Forbes\.com|NewsFactor|"
+    r"Ziff Davis|TechWeb|PC World|washingtonpost\.com|USATODAY\.com"
+)
+_AGENCY = re.compile(rf"\((?:{_SOURCES})\)|\b(?:{_SOURCES})\s+-\s+", re.IGNORECASE)
+
+
+def normalize_text(text):
+    text = html.unescape(str(text))
+    text = _TAG.sub(" ", text)
+    text = _ENTITY.sub(" ", text)
+    text = _AGENCY.sub(" ", text)
+    text = text.replace("\\", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def clean_text(text):
-    text = text.lower()
-    text = re.sub(r"[^a-zA-Z\s]", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    text = normalize_text(text).lower()
+    text = re.sub(r"[^a-z\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
-def preprocess_and_save(raw_path, out_dir):
-    df = pd.read_csv(raw_path)
-    df['clean_text'] = df['text'].apply(clean_text)
 
-    # Optional: map label to name
-    label_map = {0: "World", 1: "Sports", 2: "Business", 3: "Sci/Tech"}
-    df['label_name'] = df['label'].map(label_map)
+def prepare(df):
+    out = pd.DataFrame({"label": df["label"].astype(int)})
+    out["text"] = df["text"].map(normalize_text)
+    out["clean_text"] = df["text"].map(clean_text)
+    out["label_name"] = out["label"].map(config.ID2LABEL)
+    return out
 
-    train_df, temp_df = train_test_split(df, test_size=0.2, stratify=df['label'], random_state=42)
-    val_df, test_df = train_test_split(temp_df, test_size=0.5, stratify=temp_df['label'], random_state=42)
 
-    os.makedirs(out_dir, exist_ok=True)
-    train_df.to_csv(os.path.join(out_dir, "ag_news_clean_train.csv"), index=False)
-    val_df.to_csv(os.path.join(out_dir, "ag_news_clean_val.csv"), index=False)
-    test_df.to_csv(os.path.join(out_dir, "ag_news_clean_test.csv"), index=False)
+def preprocess_and_save(raw_dir=config.RAW_DIR, out_dir=config.PROCESSED_DIR):
+    train_raw = pd.read_csv(raw_dir / "ag_news_train.csv")
+    test_raw = pd.read_csv(raw_dir / "ag_news_test.csv")
+
+    train_full = prepare(train_raw)
+    test_df = prepare(test_raw)
+
+    # The official test split is kept untouched; validation data is drawn
+    # from the training split with stratification on the label.
+    train_df, val_df = train_test_split(
+        train_full,
+        test_size=config.VAL_FRACTION,
+        stratify=train_full["label"],
+        random_state=config.SEED,
+    )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name, frame in (("train", train_df), ("val", val_df), ("test", test_df)):
+        path = out_dir / f"ag_news_clean_{name}.csv"
+        frame.to_csv(path, index=False)
+        print(f"{name}: {len(frame):,} rows -> {path.relative_to(config.ROOT)}")
+
 
 if __name__ == "__main__":
-    preprocess_and_save("data/raw/ag_news_train.csv", "data/processed")
+    preprocess_and_save()

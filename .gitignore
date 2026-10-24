@@ -1,37 +1,34 @@
-# Ignore system files
+# OS files
 .DS_Store
 Thumbs.db
 
-# Ignore Python cache and logs
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.pytest_cache/
 *.log
 
-# Ignore virtual environments
+# Virtual environments
+.venv/
 venv/
 env/
-*.egg-info/
 
-# Ignore large files or data artifacts
-*.csv
-*.tsv
-*.json
-*.parquet
-*.zip
+# Data (recreated by src/download_data.py and src/preprocess.py)
+data/
 
-# Ignore notebooks checkpoints
+# Trained models and checkpoints (recreated by the training scripts)
+results/models/
+*.joblib
+*.pkl
+*.pt
+*.bin
+*.safetensors
+
+# Jupyter
 .ipynb_checkpoints/
 
-# Ignore model weights
-*.bin
-*.pt
-*.h5
-
-
-# HuggingFace and transformers cache
-.cache/
-huggingface/
-
-# VS Code and Jupyter config
+# Editors and caches
 .vscode/
-*.ipynb~ 
+.idea/
+.cache/
