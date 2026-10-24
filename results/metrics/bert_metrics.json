@@ -1,0 +1,77 @@
+{
+  "accuracy": 0.9422368421052632,
+  "macro_f1": 0.9422676627136871,
+  "per_class": {
+    "World": {
+      "precision": 0.9558275678552421,
+      "recall": 0.9452631578947368,
+      "f1-score": 0.9505160095263298,
+      "support": 1900.0
+    },
+    "Sports": {
+      "precision": 0.9899947340705635,
+      "recall": 0.9894736842105263,
+      "f1-score": 0.9897341405633061,
+      "support": 1900.0
+    },
+    "Business": {
+      "precision": 0.9137839276210751,
+      "recall": 0.9036842105263158,
+      "f1-score": 0.908706006880127,
+      "support": 1900.0
+    },
+    "Sci/Tech": {
+      "precision": 0.9099330931549151,
+      "recall": 0.9305263157894736,
+      "f1-score": 0.9201144938849857,
+      "support": 1900.0
+    },
+    "accuracy": 0.9422368421052632,
+    "macro avg": {
+      "precision": 0.9423848306754489,
+      "recall": 0.9422368421052632,
+      "f1-score": 0.9422676627136871,
+      "support": 7600.0
+    },
+    "weighted avg": {
+      "precision": 0.9423848306754489,
+      "recall": 0.9422368421052632,
+      "f1-score": 0.9422676627136871,
+      "support": 7600.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      1796,
+      9,
+      61,
+      34
+    ],
+    [
+      9,
+      1880,
+      5,
+      6
+    ],
+    [
+      43,
+      5,
+      1717,
+      135
+    ],
+    [
+      31,
+      5,
+      96,
+      1768
+    ]
+  ],
+  "n_test": 7600,
+  "model": "bert-base-uncased (fine-tuned)",
+  "epochs": 3,
+  "batch_size": 32,
+  "learning_rate": 2e-05,
+  "max_length": 128,
+  "train_samples": 108000,
+  "device": "Tesla T4"
+}

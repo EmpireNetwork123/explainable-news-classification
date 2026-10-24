@@ -50,28 +50,52 @@ Test-set performance on the 7,600 official AG News test articles:
 | Model | Accuracy | Macro-F1 |
 |---|---:|---:|
 | TF-IDF (1-2 grams) + Multinomial Naive Bayes (alpha = 0.03) | 90.79% | 90.77% |
-| Fine-tuned `bert-base-uncased` | see Notebook 03 | see Notebook 03 |
+| Fine-tuned `bert-base-uncased` | **94.22%** | **94.23%** |
 
-Per-class results for the baseline:
+Fine-tuning BERT reduces the number of misclassified test articles from 700 to 439, a relative error reduction of 37%.
 
-| Class | Precision | Recall | F1 |
-|---|---:|---:|---:|
-| World | 93.17% | 89.00% | 91.04% |
-| Sports | 95.12% | 98.42% | 96.74% |
-| Business | 87.83% | 86.26% | 87.04% |
-| Sci/Tech | 87.05% | 89.47% | 88.24% |
+Per-class F1 scores:
+
+| Class | Naive Bayes | BERT |
+|---|---:|---:|
+| World | 91.04% | 95.05% |
+| Sports | 96.74% | 98.97% |
+| Business | 87.04% | 90.87% |
+| Sci/Tech | 88.24% | 92.01% |
 
 <p align="center">
-  <img src="results/figures/nb_confusion_matrix.png" alt="Naive Bayes confusion matrix" width="440"/>
+  <img src="results/figures/nb_confusion_matrix.png" alt="Naive Bayes confusion matrix" width="400"/>
+  <img src="results/figures/bert_confusion_matrix.png" alt="BERT confusion matrix" width="400"/>
 </p>
 
-Sports is almost perfectly separated. Most errors fall between Business and Sci/Tech (191 Business articles predicted as Sci/Tech and 128 in the opposite direction), which is consistent with the shared vocabulary of technology companies, markets and earnings reports.
+Both models separate Sports almost perfectly. The dominant source of error for both is the Business and Sci/Tech pair, which is consistent with the shared vocabulary of technology companies, markets and earnings reports. BERT lowers these confusions from 191 to 135 (Business predicted as Sci/Tech) and from 128 to 96 (Sci/Tech predicted as Business), yet they remain its largest error category.
+
+**BERT training dynamics.** Validation accuracy rises from 93.56% after the first epoch to 94.01% and 94.23% after the second and third. Training loss falls from 0.289 to 0.099, while validation loss increases slightly (0.185, 0.188, 0.198), an early sign of overfitting that a longer schedule would amplify. Checkpoint selection on validation accuracy retains the third epoch. Fine-tuning took 25 minutes on a single T4 GPU.
+
+<p align="center">
+  <img src="results/figures/bert_training_curve.png" alt="BERT training curve" width="420"/>
+</p>
 
 Full metrics, including confusion matrices and validation scores, are stored as JSON in [`results/metrics/`](results/metrics).
 
 ## Explainability
 
-For the first test article, a Business story on a pension dispute at Turner & Newall, the baseline predicts Business with probability 0.998. LIME attributes the decision mainly to *mogul*, *newall*, *pension*, *unions* and *workers*, while *talks* weighs slightly against the class. The explanation shows that the baseline draws on topical words and also on company names, which are specific to the training corpus and would not transfer to unseen entities. Notebook 03 repeats the analysis for BERT on the same article so that the evidence used by both models can be compared directly.
+We compare the two models on the first test article, a Business story on a pension dispute at Turner & Newall. Both predict Business with probability 0.998.
+
+| Rank | Naive Bayes | Weight | BERT | Weight |
+|---:|---|---:|---|---:|
+| 1 | mogul | +0.063 | Mogul | +0.032 |
+| 2 | newall | +0.058 | firm | +0.030 |
+| 3 | pension | +0.057 | Unions | +0.024 |
+| 4 | unions | +0.040 | pension | +0.022 |
+| 5 | parent | +0.035 | workers | +0.021 |
+
+The two models rely on overlapping evidence: *pension*, *unions* and *workers* appear among the strongest cues for both. BERT spreads its attribution more evenly and gives more weight to generic business vocabulary such as *firm*. Both models, however, also draw on company names (*Mogul*, *Newall*, *Turner*), which are specific to the training corpus and would not transfer to unseen entities. The lexical baseline counts *talks* against the class, whereas BERT counts *disappointed* against it.
+
+<p align="center">
+  <img src="results/figures/lime_nb_test0.png" alt="LIME explanation, Naive Bayes" width="400"/>
+  <img src="results/figures/lime_bert_test0.png" alt="LIME explanation, BERT" width="400"/>
+</p>
 
 Each explanation is saved as a static PNG and as an interactive HTML page in [`results/figures/`](results/figures).
 
@@ -125,7 +149,7 @@ python -m src.download_data          # 1. fetch AG News into data/raw/
 python -m src.preprocess             # 2. normalise text and create train/val/test files
 python -m src.train_naive_bayes      # 3. baseline: about 1 minute on a laptop CPU
 python -m src.explain_model --model nb --index 0
-python -m src.train_bert             # 4. BERT: requires a GPU (about 30 to 60 minutes on a T4)
+python -m src.train_bert             # 4. BERT: requires a GPU (about 25 minutes on a T4)
 python -m src.explain_model --model bert --index 0
 ```
 
