@@ -2,10 +2,6 @@
 
 This repository studies topic classification of news articles on the AG News benchmark and examines *why* the classifiers make their decisions. We compare a sparse lexical baseline (TF-IDF with Multinomial Naive Bayes) against a fine-tuned transformer (`bert-base-uncased`), and we use LIME to produce local, word-level explanations for individual predictions of both models.
 
-<p align="center">
-  <img src="results/figures/lime_nb_test0.png" alt="LIME explanation for a Business article" width="560"/>
-</p>
-
 ## Contents
 
 1. [Dataset](#dataset)
